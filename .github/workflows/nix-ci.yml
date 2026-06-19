@@ -9,64 +9,121 @@ on:
 
 permissions:
   contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
 
 jobs:
-  eval:
-    name: Eval flake
+  nix:
+    name: ${{ matrix.task.name }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        task:
+          - name: Eval flake
+            command: |
+              nix flake show --print-build-logs
+              nix eval .#packages.x86_64-linux.envd.pname --raw
+              nix eval .#packages.x86_64-linux.envd.version --raw
+              nix eval .#packages.x86_64-linux.minimalImage.imageName --raw
+              nix eval .#packages.x86_64-linux.dataImage.imageName --raw
+          - name: Build envd
+            command: |
+              nix build --print-build-logs .#envd
+              ./result/bin/envd -version
+              ./result/bin/envd -commit
+
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: cachix/install-nix-action@v31
+      - name: Checkout
+        uses: actions/checkout@v5
         with:
-          extra_nix_config: |
-            accept-flake-config = true
+          persist-credentials: false
 
-      - uses: nix-community/cache-nix-action@v6
-        with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
-          gc-max-store-size-linux: 2G
-          purge: true
-          purge-prefixes: nix-${{ runner.os }}-
-          purge-created: 0
-          purge-primary-key: never
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v19
 
-      - name: Show flake outputs
-        run: nix flake show
+      - name: Enable Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
-      - name: Eval package metadata
-        run: |
-          nix eval .#packages.x86_64-linux.envd.pname --raw
-          nix eval .#packages.x86_64-linux.envd.version --raw
-          nix eval .#packages.x86_64-linux.minimalImage.imageName --raw
-          nix eval .#packages.x86_64-linux.dataImage.imageName --raw
+      - name: Run ${{ matrix.task.name }}
+        run: ${{ matrix.task.command }}
 
-  build-envd:
-    name: Build envd
+  publish-ghcr:
+    name: Build and publish GHCR images
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: nix
+    if: ${{ github.event_name == 'push' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - attr: minimalImage
+            local: cube-e2b-minimal
+            ghcr: cube-e2b-minimal
+          - attr: dataImage
+            local: cube-e2b-data
+            ghcr: cube-e2b-data
+
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: cachix/install-nix-action@v31
+      - name: Checkout
+        uses: actions/checkout@v5
         with:
-          extra_nix_config: |
-            accept-flake-config = true
+          persist-credentials: false
 
-      - uses: nix-community/cache-nix-action@v6
-        with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
-          gc-max-store-size-linux: 6G
-          purge: true
-          purge-prefixes: nix-${{ runner.os }}-
-          purge-created: 0
-          purge-primary-key: never
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v19
 
-      - name: Build envd
-        run: nix build -L .#envd
+      - name: Enable Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
-      - name: Smoke test envd metadata flags
+      - name: Build OCI archive with Nix
         run: |
-          ./result/bin/envd -version
-          ./result/bin/envd -commit
+          nix build --print-build-logs ".#${{ matrix.image.attr }}"
+          test -s result
+
+      - name: Load image into Docker
+        run: |
+          docker load --input result
+          docker image inspect "${{ matrix.image.local }}:latest"
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Tag and push image
+        run: |
+          set -euo pipefail
+          owner_lc="$(printf '%s' "$IMAGE_OWNER" | tr '[:upper:]' '[:lower:]')"
+          repo="$REGISTRY/$owner_lc/${{ matrix.image.ghcr }}"
+          short_sha="${GITHUB_SHA::12}"
+
+          tags=("$repo:sha-$short_sha")
+          if [[ "$GITHUB_REF_TYPE" == "branch" && "$GITHUB_REF_NAME" == "main" ]]; then
+            tags+=("$repo:latest")
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tags+=("$repo:$GITHUB_REF_NAME")
+          fi
+
+          for tag in "${tags[@]}"; do
+            docker tag "${{ matrix.image.local }}:latest" "$tag"
+            docker push "$tag"
+          done
+
+          printf 'Pushed image tags:\n'
+          printf '%s\n' "${tags[@]}"
