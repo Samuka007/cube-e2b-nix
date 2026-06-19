@@ -1,43 +1,42 @@
-{ pkgs }:
-
-# Sketch of the real envd package. Kept as a template because the exact
-# sha256/vendorHash must be filled by a real build on a machine with enough
-# space/network budget.
-#
-# Usage:
-#   realEnvd = pkgs.callPackage ./pkgs/envd-e2b.nix {
-#     srcHash = "sha256-...";
-#     vendorHash = "sha256-...";
-#   };
-{ version ? "2026.16"
-, srcHash
-, vendorHash
+{ lib
+, buildGoModule
+, fetchFromGitHub
 }:
 
-pkgs.buildGoModule {
+buildGoModule rec {
   pname = "envd";
-  inherit version vendorHash;
+  version = "2026.16";
 
-  src = pkgs.fetchFromGitHub {
+  src = fetchFromGitHub {
     owner = "e2b-dev";
     repo = "infra";
     rev = version;
-    hash = srcHash;
+    hash = "sha256-03e8lScd220pgiTtIGkP7fOIcJhygQLwUkJ90fZv1Ok=";
   };
 
   sourceRoot = "source/packages/envd";
+  vendorHash = "sha256-Qd737wtqIf9WFstG0uotFkhhQ9vgqaLR5xkUbZhHgFM=";
 
-  CGO_ENABLED = 0;
+  env.GOWORK = "off";
 
   ldflags = [
+    "-X=main.commitSHA=${version}"
     "-s"
     "-w"
-    "-X=main.commitSHA=${version}"
   ];
+
+  doCheck = false;
+
+  postInstall = ''
+    $out/bin/envd -version >/dev/null
+    $out/bin/envd -commit >/dev/null
+  '';
 
   meta = {
     description = "E2B envd daemon for CubeSandbox/E2B-compatible sandboxes";
-    license = pkgs.lib.licenses.asl20;
-    platforms = [ "x86_64-linux" ];
+    homepage = "https://github.com/e2b-dev/infra/tree/${version}/packages/envd";
+    license = lib.licenses.asl20;
+    platforms = [ "x86_64-linux" "aarch64-linux" ];
+    mainProgram = "envd";
   };
 }

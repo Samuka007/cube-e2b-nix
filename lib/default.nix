@@ -7,10 +7,7 @@ let
     let
       evaluated = lib.evalModules {
         specialArgs = { inherit pkgs; };
-        modules = [
-          ./module.nix
-          module
-        ];
+        modules = [ ./module.nix ] ++ lib.toList module;
       };
       cfg = evaluated.config.cube.e2b;
       args = {
