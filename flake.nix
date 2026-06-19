@@ -1,15 +1,6 @@
 {
   description = "Nix-built E2B/CubeSandbox-compatible OCI images";
 
-  nixConfig = {
-    extra-substituters = [
-      "https://cache.nixos.org/"
-    ];
-    extra-trusted-public-keys = [
-      "cache.nixos.org-1:6NCHdD59X431o0gWkTptE9HnePt8N7m7qnd6NdbJcc="
-    ];
-  };
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
