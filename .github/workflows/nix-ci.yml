@@ -53,10 +53,14 @@ jobs:
           persist-credentials: false
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v19
-
-      - name: Enable Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /nix
+          sudo chown "$USER" /nix
+          curl --fail --location --proto '=https' --tlsv1.2 https://nixos.org/nix/install | sh -s -- --no-daemon
+          mkdir -p "$HOME/.config/nix"
+          printf 'experimental-features = nix-command flakes\n' > "$HOME/.config/nix/nix.conf"
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
 
       - name: Run ${{ matrix.task.name }}
         run: ${{ matrix.task.command }}
@@ -86,10 +90,14 @@ jobs:
           persist-credentials: false
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v19
-
-      - name: Enable Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /nix
+          sudo chown "$USER" /nix
+          curl --fail --location --proto '=https' --tlsv1.2 https://nixos.org/nix/install | sh -s -- --no-daemon
+          mkdir -p "$HOME/.config/nix"
+          printf 'experimental-features = nix-command flakes\n' > "$HOME/.config/nix/nix.conf"
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
 
       - name: Build OCI archive with Nix
         run: |

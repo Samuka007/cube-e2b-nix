@@ -79,8 +79,13 @@ pkgs.dockerTools.buildLayeredImage {
   # - extraCommands adds small rootfs metadata files.
   # - fakeRootCommands sets ownership without requiring privileged builds.
   extraCommands = ''
-    mkdir -p usr/bin usr/local/bin etc etc/sudoers.d home/${userName} workspace tmp var/log root
+    mkdir -p usr/bin usr/local/bin etc home/${userName} workspace tmp var/log root
     chmod 1777 tmp
+
+    if [ -e etc/sudoers.d ] || [ -L etc/sudoers.d ]; then
+      rm -rf etc/sudoers.d
+    fi
+    mkdir -p etc/sudoers.d
 
     cp ${envdPackage}/bin/envd usr/bin/envd
     chmod +x usr/bin/envd
